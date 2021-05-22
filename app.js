@@ -3,13 +3,12 @@
 
 //-----------------------------------------REQUIRED MODULES----------------------------------------//
 
-
+require('dotenv').config()    //encorporated dotenv asap in project file.
 const express = require("express");
 const app = express();
 const ejs = require("ejs");
 const mongoose = require('mongoose');
 const encrypt = require('mongoose-encryption');
-//During save, documents are encrypted and then signed. During find, documents are authenticated and then decrypted
 
 
 //-----------------------------------------BASIC SETUP--------------------------------------------//
@@ -33,21 +32,12 @@ const userSchema = new mongoose.Schema({
     password:String
 });
 
-//You can either use a single secret string of any length; or a pair of base64 strings (a 32-byte encryptionKey and a 64-byte signingKey).
-// You have to create a variable containing of any string and that variable should be put against secret: as js object.
 
-// .....
+console.log(process.env.SECRET);
 
-// { secret : variableName }
 
-const secret = "This is our little secret";
-
-//ADD plugin before creating a model**
-
-userSchema.plugin(encrypt, { secret: secret ,encryptedFields: ['password'] });
-// This adds _ct and _ac fields to the schema, as well as pre 'init' and pre 'save' middleware,
-// and encrypt, decrypt, sign, and authenticate instance methods
-
+userSchema.plugin(encrypt, { secret: process.env.SECRET ,encryptedFields: ['password'] });
+// using process.env.SECREt , where it takes SECRET value from dotenv file which is under .gitignore
 
 const User =new mongoose.model("User",userSchema);
 
