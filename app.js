@@ -3,15 +3,16 @@
 
 //-----------------------------------------REQUIRED MODULES----------------------------------------//
 
-require('dotenv').config()    //encorporated dotenv asap in project file.
+require('dotenv').config()   
 const express = require("express");
 const app = express();
 const ejs = require("ejs");
 const mongoose = require('mongoose');
-const session = require('express-session')    //adding required package
+const session = require('express-session')  
 const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
-
+const GoogleStrategy = require('passport-google-oauth20').Strategy;     //adding required package and using this package as passsport strategy
+const findOrCreate = require('mongoose-findorcreate');    //adding new package to use the findorcreate() method functionality.
 
 //-----------------------------------------BASIC SETUP--------------------------------------------//
 
@@ -26,16 +27,15 @@ app.use(express.static("public"));
 
 //----------------------------------------SESSION SETUP-------------------------------------------//
 
-app.use(session({                   //setting session with some inital configuration
-
+app.use(session({                   
   secret: "This is Akash Sahu",
   resave:false,
   saveUninitialized:false
 
 }));
 
-app.use(passport.initialize());   // tells our app, to use passport and initializze the passport package.
-app.use(passport.session());    //tells our app, that use passport to setup our session.
+app.use(passport.initialize());   
+app.use(passport.session());    
 
 //-----------------------------------------MONGOOSE SETUP-----------------------------------------//
 
@@ -44,22 +44,43 @@ mongoose.connect('mongodb://localhost:27017/userDB', {useNewUrlParser: true, use
 
 const userSchema = new mongoose.Schema({
     email:String,
-    password:String
+    password:String,
+    googleId:String         //adding new field to store user's google id,
 });
 
 
-userSchema.plugin(passportLocalMongoose);   //It is what we are going to use hash and salt our password and to save our users into mongoDB database.
-                                            //It handles such a heavy lifting for us.
+userSchema.plugin(passportLocalMongoose);   
+userSchema.plugin(findOrCreate);      //add plugin to our userschema
+
 const User =new mongoose.model("User",userSchema);
 
-// use static authenticate method of model in LocalStrategy
 passport.use(User.createStrategy());
 
-// use static serialize and deserialize of model for passport session support
-passport.serializeUser(User.serializeUser());                // serialise means put user identification into a cookie
-passport.deserializeUser(User.deserializeUser());           //deserialise means opeining of cookie and see the andar ka maal.
+// passport.serializeUser(User.serializeUser());          //replacing them as they using local strategy     
+// passport.deserializeUser(User.deserializeUser());          
 
+passport.serializeUser(function(user, done) {       ////from passport docs, in configure setting, now this will work for any kind of authentication
+  done(null, user.id);
+});
 
+passport.deserializeUser(function(id, done) {
+  User.findById(id, function(err, user) {
+    done(err, user);
+  });
+});
+
+passport.use(new GoogleStrategy({             //Next part is to setup and configure google strategy.
+  clientID: process.env.CLIENT_ID,
+  clientSecret: process.env.CLIENT_SECRET,
+  callbackURL: "http://localhost:3000/auth/google/secrets"
+},
+function(accessToken, refreshToken, profile, cb) {
+  console.log(profile);     //logging profile into console.
+  User.findOrCreate({ googleId: profile.id }, function (err, user) {  //after requiring package adn adding plugin,now this function will work.
+    return cb(err, user);
+  });
+}
+));
 //-----------------------------------------SERVER SETUP-----------------------------------------//
 
 app.get("/",function(req,res){
@@ -67,6 +88,24 @@ app.get("/",function(req,res){
   res.render("home");
 
 });
+
+app.get("/auth/google",
+  //Initializing authentication with google
+  //use passport to authenticate our user with google strategy ,which we defined above
+  passport.authenticate('google', { scope: ['profile'] })   //using google strategy
+  //here scope means our site "secrets" wants user's profile info. from google, its email, profile data etc.
+  // this line of code is sufficient to pop up google login page and will tell: Choose an account to continue to Secrets
+
+);
+
+app.get('/auth/google/secrets', 
+  passport.authenticate('google', { failureRedirect: '/login' }), //if authentication fails
+  function(req, res) {
+    // Successful authentication, redirect secrets.
+    res.redirect('/secrets');   //means passport.use(new GoogleStrategy) has already completed and callback function has triggered.
+                                  //where we can see the user's profile info on console.
+  });
+
 
 
 app.get("/login",function(req,res){
@@ -85,14 +124,14 @@ app.get("/register",function(req,res){
 });
 
 app.get("/secrets",function(req,res){
-  if(req.isAuthenticated())     //checking if the user is authenticated or not, means if the user is already loggin in, then he can render secrets page.
-  res.render("secrets");    //as we have user's cookie, its info and all. and he is still logged in, so he can goo directly secrets page from home page, by url.
+  if(req.isAuthenticated())   
+  res.render("secrets");    
   else
-  res.redirect("/login");   //if not loggin in
+  res.redirect("/login");   
 })
 
 app.get("/logout",function(req,res){ 
-  req.logout();       //to logout our loggin user.Invoking logout() will remove the req.user property and clear the login session (if any).
+  req.logout();       
   res.redirect("/");
 });
 
@@ -100,23 +139,17 @@ app.get("/logout",function(req,res){
 app.post("/register",function(req,res){
 
 User.register({username : req.body.username}, req.body.password, function(err, user) {   
-  //this method comes from passportLocalMongoose
-  //this package will will create new user,save new user and  interacting with mongoose directly.
-  if (err) {
+   if (err) {
   console.log(err);
   res.redirect("/register");
   }   
   else{
-    passport.authenticate("local")(req,res,function(){    //type of authentication , we're performing is local.
-      //this callback is only triggered, if we managed to setup a cookie successfully ,that saved their current logged in session
-      //HERE
+    passport.authenticate("local")(req,res,function(){   
       res.redirect("/secrets");
     })
   }});
 });
 
-//HERE:- Means we are sending a cookie to our browser and telling it, to hold on that cookie becoz it holds some users credentials
-//that will tell the server that , yes this user is authorized and can watch all that server's pages that requires authentication.
 
 app.post("/login",function(req,res){
 
@@ -125,15 +158,12 @@ app.post("/login",function(req,res){
     password:req.body.password
   });
 
-  req.login(user,function(err){   //login() method will check users credentials with users database,not found then produce err
+  req.login(user,function(err){   
     
     if(err)
     console.log(err);
     else{
-    //In else means, user successfully logged in.
-    passport.authenticate("local")(req,res,function(){    //type of authentication , we're performing is local.
-      //this callback is only triggered, if we managed to setup a cookie successfully ,that saved their current logged in session
-     //HERE
+    passport.authenticate("local")(req,res,function(){    
       res.redirect("/secrets");
     });
 
