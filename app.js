@@ -11,8 +11,8 @@ const mongoose = require('mongoose');
 const session = require('express-session')  
 const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
-const GoogleStrategy = require('passport-google-oauth20').Strategy;     //adding required package and using this package as passsport strategy
-const findOrCreate = require('mongoose-findorcreate');    //adding new package to use the findorcreate() method functionality.
+const GoogleStrategy = require('passport-google-oauth20').Strategy;     
+const findOrCreate = require('mongoose-findorcreate');    
 
 //-----------------------------------------BASIC SETUP--------------------------------------------//
 
@@ -45,21 +45,21 @@ mongoose.connect('mongodb://localhost:27017/userDB', {useNewUrlParser: true, use
 const userSchema = new mongoose.Schema({
     email:String,
     password:String,
-    googleId:String         //adding new field to store user's google id,
+    googleId:String,
+    secret:String        //Adding new field to store secret
 });
 
 
 userSchema.plugin(passportLocalMongoose);   
-userSchema.plugin(findOrCreate);      //add plugin to our userschema
+userSchema.plugin(findOrCreate);      
 
 const User =new mongoose.model("User",userSchema);
 
 passport.use(User.createStrategy());
 
-// passport.serializeUser(User.serializeUser());          //replacing them as they using local strategy     
-// passport.deserializeUser(User.deserializeUser());          
+      
 
-passport.serializeUser(function(user, done) {       ////from passport docs, in configure setting, now this will work for any kind of authentication
+passport.serializeUser(function(user, done) {      
   done(null, user.id);
 });
 
@@ -69,14 +69,14 @@ passport.deserializeUser(function(id, done) {
   });
 });
 
-passport.use(new GoogleStrategy({             //Next part is to setup and configure google strategy.
+passport.use(new GoogleStrategy({           
   clientID: process.env.CLIENT_ID,
   clientSecret: process.env.CLIENT_SECRET,
   callbackURL: "http://localhost:3000/auth/google/secrets"
 },
 function(accessToken, refreshToken, profile, cb) {
-  console.log(profile);     //logging profile into console.
-  User.findOrCreate({ googleId: profile.id }, function (err, user) {  //after requiring package adn adding plugin,now this function will work.
+  console.log(profile);   
+  User.findOrCreate({ googleId: profile.id }, function (err, user) {  
     return cb(err, user);
   });
 }
@@ -89,21 +89,12 @@ app.get("/",function(req,res){
 
 });
 
-app.get("/auth/google",
-  //Initializing authentication with google
-  //use passport to authenticate our user with google strategy ,which we defined above
-  passport.authenticate('google', { scope: ['profile'] })   //using google strategy
-  //here scope means our site "secrets" wants user's profile info. from google, its email, profile data etc.
-  // this line of code is sufficient to pop up google login page and will tell: Choose an account to continue to Secrets
-
-);
+app.get("/auth/google",passport.authenticate('google', { scope: ['profile'] }));
 
 app.get('/auth/google/secrets', 
-  passport.authenticate('google', { failureRedirect: '/login' }), //if authentication fails
+  passport.authenticate('google', { failureRedirect: '/login' }),
   function(req, res) {
-    // Successful authentication, redirect secrets.
-    res.redirect('/secrets');   //means passport.use(new GoogleStrategy) has already completed and callback function has triggered.
-                                  //where we can see the user's profile info on console.
+    res.redirect('/secrets');  
   });
 
 
@@ -124,17 +115,47 @@ app.get("/register",function(req,res){
 });
 
 app.get("/secrets",function(req,res){
-  if(req.isAuthenticated())   
-  res.render("secrets");    
-  else
-  res.redirect("/login");   
-})
+
+  User.find({secret:{$ne:null}},function(err,foundUsers){  //this will search all our user Db and look for secret field whose value isnt null.
+    if(err)
+    console.log(err);
+    else{
+      if(foundUsers)
+      res.render("secrets",{secrets:foundUsers}); //we are actually passing array of users
+    }
+  });
+});
 
 app.get("/logout",function(req,res){ 
   req.logout();       
   res.redirect("/");
 });
 
+app.get("/submit",function(req,res){
+  if(req.isAuthenticated())       //Checking authentication, same as above
+  res.render("submit");    
+  else
+  res.redirect("/login");  
+});
+
+app.post("/submit",function(req,res){
+  const submittedSecret = req.body.secret;    //saving their secret msg
+  //Next thing is to find the current user in our DB and save this msg to their account
+  //passport very handlly save the user details when we initiate new login session
+  console.log(req.user.id);
+
+  User.findById(req.user.id,function(err,found){
+    if(err)
+    console.log(err);
+    else{
+      if(found)
+      found.secret = submittedSecret;
+      found.save(function(){
+        res.redirect("/secrets");
+      });
+    }
+  });
+});
 
 app.post("/register",function(req,res){
 
